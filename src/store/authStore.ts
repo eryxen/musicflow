@@ -1,32 +1,143 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { User, AuthState } from '@/types';
+
+// Mock user for development without Supabase
+export const mockUser: User = {
+  id: 'mock-user-1',
+  email: 'demo@musicflow.app',
+  name: 'Demo User',
+  avatar_url: '',
+  subscription_plan: 'free',
+  storage_used: 0,
+  storage_limit: 524288000,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+};
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       user: null,
       isAuthenticated: false,
-      isLoading: true,
+      isLoading: false,
       setUser: (user) => set({ user, isAuthenticated: !!user }),
       setLoading: (isLoading) => set({ isLoading }),
-      logout: () => set({ user: null, isAuthenticated: false }),
+      logout: async () => {
+        if (isSupabaseConfigured()) {
+          await supabase.auth.signOut();
+        }
+        set({ user: null, isAuthenticated: false });
+      },
     }),
-    {
-      name: 'auth-storage',
-    }
+    { name: 'auth-storage' }
   )
 );
 
-// 模拟用户数据，用于演示
-export const mockUser: User = {
-  id: '1',
-  email: 'demo@musicflow.app',
-  name: '音乐创作者',
-  avatar_url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=musicflow',
-  subscription_plan: 'pro',
-  storage_used: 1024 * 1024 * 500, // 500MB
-  storage_limit: 1024 * 1024 * 1024, // 1GB
-  created_at: '2024-01-01T00:00:00Z',
-  updated_at: '2024-01-15T00:00:00Z',
-};
+// Supabase auth helpers
+export async function signUpWithEmail(email: string, password: string, name: string) {
+  if (!isSupabaseConfigured()) {
+    // Mock mode
+    useAuthStore.getState().setUser({ ...mockUser, email, name });
+    return { user: mockUser, error: null };
+  }
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { name } },
+  });
+
+  if (error) return { user: null, error: error.message };
+
+  if (data.user) {
+    const profile = await fetchProfile(data.user.id);
+    if (profile) useAuthStore.getState().setUser(profile);
+  }
+
+  return { user: data.user, error: null };
+}
+
+export async function signInWithEmail(email: string, password: string) {
+  if (!isSupabaseConfigured()) {
+    useAuthStore.getState().setUser(mockUser);
+    return { user: mockUser, error: null };
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+  if (error) return { user: null, error: error.message };
+
+  if (data.user) {
+    const profile = await fetchProfile(data.user.id);
+    if (profile) useAuthStore.getState().setUser(profile);
+  }
+
+  return { user: data.user, error: null };
+}
+
+export async function signInWithGoogle() {
+  if (!isSupabaseConfigured()) {
+    useAuthStore.getState().setUser(mockUser);
+    return { error: null };
+  }
+
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin + '/dashboard' },
+  });
+
+  return { error: error?.message || null };
+}
+
+export async function signInWithGithub() {
+  if (!isSupabaseConfigured()) {
+    useAuthStore.getState().setUser(mockUser);
+    return { error: null };
+  }
+
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'github',
+    options: { redirectTo: window.location.origin + '/dashboard' },
+  });
+
+  return { error: error?.message || null };
+}
+
+async function fetchProfile(userId: string): Promise<User | null> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', userId)
+    .single();
+
+  if (error || !data) return null;
+
+  return {
+    id: data.id,
+    email: '', // will be filled from auth
+    name: data.name || '',
+    avatar_url: data.avatar_url || '',
+    subscription_plan: data.subscription_plan,
+    storage_used: data.storage_used,
+    storage_limit: data.storage_limit,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+  };
+}
+
+// Listen for auth state changes
+if (isSupabaseConfigured()) {
+  supabase.auth.onAuthStateChange(async (event, session) => {
+    if (session?.user) {
+      const profile = await fetchProfile(session.user.id);
+      if (profile) {
+        profile.email = session.user.email || '';
+        useAuthStore.getState().setUser(profile);
+      }
+    } else if (event === 'SIGNED_OUT') {
+      useAuthStore.getState().setUser(null);
+    }
+  });
+}
