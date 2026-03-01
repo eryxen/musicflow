@@ -1,5 +1,4 @@
-const MINIMAX_API_URL = 'https://api.minimax.io/v1';
-const MINIMAX_API_KEY = import.meta.env.VITE_MINIMAX_API_KEY;
+const API_BASE = '/api';
 
 export interface MusicGenerationRequest {
   prompt: string;
@@ -16,49 +15,22 @@ export interface GeneratedMusic {
   duration: number;
 }
 
-// Default lyrics template
-const DEFAULT_LYRICS = `[Verse]
-Melody floating in the air
-节奏轻快 心跳同步
-[ Chorus ]
-Music flows like water
-All around the world
-[Outro]`;
-
-async function callMiniMaxMusic(req: MusicGenerationRequest): Promise<GeneratedMusic[]> {
-  if (!MINIMAX_API_KEY) {
-    throw new Error('MiniMax API key not configured. Please set VITE_MINIMAX_API_KEY in environment.');
-  }
-
-  const lyrics = req.lyrics || DEFAULT_LYRICS;
-  const prompt = `${req.genre}, ${req.mood}, ${req.prompt}`;
-
-  const response = await fetch(`${MINIMAX_API_URL}/music_generation`, {
+export async function generateMusic(req: MusicGenerationRequest): Promise<GeneratedMusic[]> {
+  const response = await fetch(`${API_BASE}/music`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${MINIMAX_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model: 'music-2.5',
-      prompt: prompt,
-      lyrics: lyrics,
-      audio_setting: {
-        sample_rate: 44100,
-        bitrate: 256000,
-        format: 'mp3',
-      },
-    }),
+    body: JSON.stringify(req),
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`MiniMax API error: ${response.status} - ${error}`);
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || `API error: ${response.status}`);
   }
 
   const data = await response.json();
   
-  // Parse response - check for audio_file in the response
   const results: GeneratedMusic[] = [];
   if (data.data && Array.isArray(data.data)) {
     for (const item of data.data) {
@@ -72,16 +44,8 @@ async function callMiniMaxMusic(req: MusicGenerationRequest): Promise<GeneratedM
   }
   
   if (results.length === 0) {
-    throw new Error('No music generated. Please check your API key and try again.');
+    throw new Error('No music generated. Please try again.');
   }
   
   return results;
-}
-
-export async function generateMusic(req: MusicGenerationRequest): Promise<GeneratedMusic[]> {
-  if (!MINIMAX_API_KEY) {
-    throw new Error('MiniMax API key not configured. Please set VITE_MINIMAX_API_KEY in environment.');
-  }
-  
-  return await callMiniMaxMusic(req);
 }
