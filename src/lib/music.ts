@@ -1,5 +1,3 @@
-import { supabase } from './supabase';
-
 const MINIMAX_API_URL = 'https://api.minimax.io/v1';
 const MINIMAX_API_KEY = import.meta.env.VITE_MINIMAX_API_KEY;
 
@@ -18,11 +16,22 @@ export interface GeneratedMusic {
   duration: number;
 }
 
-// MiniMax Music API call
+// Default lyrics template
+const DEFAULT_LYRICS = `[Verse]
+Melody floating in the air
+节奏轻快 心跳同步
+[ Chorus ]
+Music flows like water
+All around the world
+[Outro]`;
+
 async function callMiniMaxMusic(req: MusicGenerationRequest): Promise<GeneratedMusic[]> {
   if (!MINIMAX_API_KEY) {
-    throw new Error('MiniMax API key not configured');
+    throw new Error('MiniMax API key not configured. Please set VITE_MINIMAX_API_KEY in environment.');
   }
+
+  const lyrics = req.lyrics || DEFAULT_LYRICS;
+  const prompt = `${req.genre}, ${req.mood}, ${req.prompt}`;
 
   const response = await fetch(`${MINIMAX_API_URL}/music_generation`, {
     method: 'POST',
@@ -32,8 +41,8 @@ async function callMiniMaxMusic(req: MusicGenerationRequest): Promise<GeneratedM
     },
     body: JSON.stringify({
       model: 'music-2.5',
-      prompt: `${req.genre}, ${req.mood}, ${req.prompt}`,
-      lyrics: req.lyrics || '',
+      prompt: prompt,
+      lyrics: lyrics,
       audio_setting: {
         sample_rate: 44100,
         bitrate: 256000,
@@ -49,33 +58,30 @@ async function callMiniMaxMusic(req: MusicGenerationRequest): Promise<GeneratedM
 
   const data = await response.json();
   
-  // Parse response - MiniMax returns audio URLs in data.audio
+  // Parse response - check for audio_file in the response
   const results: GeneratedMusic[] = [];
   if (data.data && Array.isArray(data.data)) {
     for (const item of data.data) {
       results.push({
         id: item.id || Date.now().toString() + Math.random().toString(36).substr(2, 9),
-        url: item.audio || item.url || '',
-        title: req.prompt.slice(0, 30),
+        url: item.audio_file?.url || item.audio_file || item.url || '',
+        title: req.prompt.slice(0, 30) || 'AI Generated Music',
         duration: req.duration || 60,
       });
     }
   }
   
+  if (results.length === 0) {
+    throw new Error('No music generated. Please check your API key and try again.');
+  }
+  
   return results;
 }
 
-// Main function to generate music
 export async function generateMusic(req: MusicGenerationRequest): Promise<GeneratedMusic[]> {
-  try {
-    // Try MiniMax first
-    if (MINIMAX_API_KEY) {
-      return await callMiniMaxMusic(req);
-    }
-  } catch (error) {
-    console.error('MiniMax generation failed:', error);
-    throw error;
+  if (!MINIMAX_API_KEY) {
+    throw new Error('MiniMax API key not configured. Please set VITE_MINIMAX_API_KEY in environment.');
   }
   
-  throw new Error('No music generation API available');
+  return await callMiniMaxMusic(req);
 }
