@@ -1,8 +1,5 @@
 {
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/music.ts"
-    }
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/music.js" }
   ]
 }
