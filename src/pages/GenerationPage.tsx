@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useProjectStore } from '@/store';
+import { generateMusic } from '@/lib/music';
 import {
   Sparkles,
   Play,
@@ -8,6 +9,7 @@ import {
   Loader2,
   CheckCircle,
   Wand2,
+  AlertCircle,
 } from 'lucide-react';
 import type { MusicGenre, MusicMood } from '@/types';
 
@@ -34,14 +36,15 @@ const moods: { id: MusicMood; name: string; emoji: string }[] = [
   { id: 'melancholic', name: '忧郁', emoji: '🌧' },
 ];
 
-const durations = [15, 30, 60, 90, 120];
+const durations = [15, 30, 60];
 
 export function GenerationPage() {
   const [description, setDescription] = useState('');
   const [selectedGenre, setSelectedGenre] = useState<MusicGenre>('electronic');
   const [selectedMood, setSelectedMood] = useState<MusicMood>('energetic');
-  const [duration, setDuration] = useState(60);
+  const [duration, setDuration] = useState(30);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState('');
   const [generatedTracks, setGeneratedTracks] = useState<
     { id: string; url: string; title: string; duration: number }[]
   >([]);
@@ -50,91 +53,95 @@ export function GenerationPage() {
   const { addProject } = useProjectStore();
 
   const handleGenerate = async () => {
-    if (!description.trim()) return;
+    if (!description.trim()) {
+      setError('请输入音乐描述');
+      return;
+    }
 
     setIsGenerating(true);
+    setError('');
 
-    // 模拟生成过程
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    try {
+      const tracks = await generateMusic({
+        prompt: description,
+        duration,
+        genre: selectedGenre,
+        mood: selectedMood,
+      });
 
-    // 模拟生成结果
-    const newTracks = [
-      {
-        id: Date.now().toString(),
-        url: '/music/generated1.mp3',
-        title: `AI生成音乐 - ${description.slice(0, 20)}...`,
-        duration: duration,
-      },
-      {
-        id: (Date.now() + 1).toString(),
-        url: '/music/generated2.mp3',
-        title: `AI生成音乐 2 - ${description.slice(0, 15)}...`,
-        duration: duration,
-      },
-      {
-        id: (Date.now() + 2).toString(),
-        url: '/music/generated3.mp3',
-        title: `AI生成音乐 3 - ${description.slice(0, 15)}...`,
-        duration: duration,
-      },
-    ];
+      setGeneratedTracks(tracks);
 
-    setGeneratedTracks(newTracks);
-    setIsGenerating(false);
+      // Save to project store
+      addProject({
+        id: crypto.randomUUID(),
+        user_id: '',
+        name: `AI生成 - ${description.slice(0, 20)}`,
+        type: 'generation',
+        status: 'completed',
+        input_file_url: '',
+        input_file_name: description,
+        output_files: {},
+        settings: { genre: selectedGenre, mood: selectedMood },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      console.error('Generation failed:', err);
+      setError(err.message || '生成失败，请稍后重试');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
-    // 添加到项目列表
-    addProject({
-      id: Date.now().toString(),
-      user_id: '1',
-      name: description.slice(0, 30),
-      type: 'generation',
-      status: 'completed',
-      input_file_url: '',
-      input_file_name: '',
-      settings: { genre: selectedGenre, mood: selectedMood, duration },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
+  const handlePlay = (url: string) => {
+    if (currentPlaying === url) {
+      setCurrentPlaying(null);
+    } else {
+      setCurrentPlaying(url);
+    }
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
-      {/* 页面标题 */}
-      <div>
-        <h1 className="font-display text-3xl font-bold mb-2">AI音乐生成</h1>
-        <p className="text-text-secondary">
-          描述你想要的音乐风格，AI为你创作独特的旋律
-        </p>
+    <div className="p-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+          <Sparkles className="w-6 h-6 text-purple-500" />
+          AI 音乐生成
+        </h1>
+        <p className="text-gray-400 mt-1">用 AI 创作独特的音乐</p>
       </div>
 
-      {/* 生成表单 */}
-      <div className="p-6 rounded-2xl bg-surface/50 border border-border/50 space-y-6">
-        {/* 音乐描述 */}
-        <div>
-          <label className="block text-sm font-medium mb-2">
-            描述你想要的音乐
-          </label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="例如：欢快的电子舞曲，适合派对氛围，120BPM，有强烈的贝斯线..."
-            className="w-full h-32 p-4 rounded-xl bg-surface-elevated border border-border input-focus resize-none"
-          />
+      {/* Error Alert */}
+      {error && (
+        <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-2 text-red-400">
+          <AlertCircle className="w-4 h-4" />
+          <span className="text-sm">{error}</span>
         </div>
+      )}
 
-        {/* 音乐风格 */}
-        <div>
-          <label className="block text-sm font-medium mb-2">音乐风格</label>
-          <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+      {/* Input Section */}
+      <div className="bg-[#16162a] border border-[#2d2d5a] rounded-2xl p-6 mb-6">
+        <label className="text-sm text-gray-400 mb-2 block">音乐描述</label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="描述你想要什么样的音乐... 例如：欢快的电子舞曲，适合派对"
+          className="w-full h-24 bg-[#1e1e3f] border border-[#2d2d5a] rounded-lg p-3 text-white placeholder-gray-500 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none resize-none"
+        />
+
+        {/* Genre Selection */}
+        <div className="mt-4">
+          <label className="text-sm text-gray-400 mb-2 block">音乐风格</label>
+          <div className="flex flex-wrap gap-2">
             {genres.map((genre) => (
               <button
                 key={genre.id}
                 onClick={() => setSelectedGenre(genre.id)}
-                className={`py-2 px-3 rounded-lg text-sm transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-sm transition ${
                   selectedGenre === genre.id
-                    ? 'bg-accent/20 border-accent text-accent-light'
-                    : 'bg-surface-elevated/50 border-border hover:border-accent/50'
-                } border`}
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-[#1e1e3f] text-gray-300 hover:bg-purple-600/20'
+                }`}
               >
                 {genre.name}
               </button>
@@ -142,40 +149,39 @@ export function GenerationPage() {
           </div>
         </div>
 
-        {/* 音乐情绪 */}
-        <div>
-          <label className="block text-sm font-medium mb-2">音乐情绪</label>
-          <div className="grid grid-cols-4 md:grid-cols-8 gap-2">
+        {/* Mood Selection */}
+        <div className="mt-4">
+          <label className="text-sm text-gray-400 mb-2 block">音乐情绪</label>
+          <div className="flex flex-wrap gap-2">
             {moods.map((mood) => (
               <button
                 key={mood.id}
                 onClick={() => setSelectedMood(mood.id)}
-                className={`py-3 rounded-lg text-sm transition-all flex flex-col items-center gap-1 ${
+                className={`px-3 py-1.5 rounded-lg text-sm transition ${
                   selectedMood === mood.id
-                    ? 'bg-accent/20 border-accent text-accent-light'
-                    : 'bg-surface-elevated/50 border-border hover:border-accent/50'
-                } border`}
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-[#1e1e3f] text-gray-300 hover:bg-purple-600/20'
+                }`}
               >
-                <span className="text-lg">{mood.emoji}</span>
-                <span>{mood.name}</span>
+                {mood.emoji} {mood.name}
               </button>
             ))}
           </div>
         </div>
 
-        {/* 时长选择 */}
-        <div>
-          <label className="block text-sm font-medium mb-2">音乐时长</label>
+        {/* Duration */}
+        <div className="mt-4">
+          <label className="text-sm text-gray-400 mb-2 block">时长</label>
           <div className="flex gap-2">
             {durations.map((d) => (
               <button
                 key={d}
                 onClick={() => setDuration(d)}
-                className={`py-2 px-4 rounded-lg text-sm transition-all ${
+                className={`px-4 py-2 rounded-lg text-sm transition ${
                   duration === d
-                    ? 'bg-accent/20 border-accent text-accent-light'
-                    : 'bg-surface-elevated/50 border-border hover:border-accent/50'
-                } border`}
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-[#1e1e3f] text-gray-300 hover:bg-purple-600/20'
+                }`}
               >
                 {d}秒
               </button>
@@ -183,112 +189,61 @@ export function GenerationPage() {
           </div>
         </div>
 
-        {/* 生成按钮 */}
+        {/* Generate Button */}
         <button
           onClick={handleGenerate}
-          disabled={!description.trim() || isGenerating}
-          className="w-full py-4 rounded-xl bg-gradient-accent text-white font-medium text-lg btn-glow disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={isGenerating || !description.trim()}
+          className="w-full mt-6 h-12 bg-gradient-to-r from-purple-600 to-blue-500 hover:from-purple-500 hover:to-blue-400 rounded-lg font-medium flex items-center justify-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isGenerating ? (
-            <div className="flex items-center justify-center gap-2">
+            <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              AI 正在创作中...
-            </div>
+              生成中...
+            </>
           ) : (
-            <div className="flex items-center justify-center gap-2">
+            <>
               <Wand2 className="w-5 h-5" />
               生成音乐
-            </div>
+            </>
           )}
         </button>
       </div>
 
-      {/* 生成进度 */}
-      {isGenerating && (
-        <div className="p-8 rounded-2xl bg-surface/50 border border-border/50 text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-accent flex items-center justify-center animate-pulse">
-            <Sparkles className="w-8 h-8 text-white" />
-          </div>
-          <p className="text-lg font-medium mb-2">AI 正在创作你的音乐</p>
-          <p className="text-text-muted text-sm">
-            这通常需要几秒钟时间，请稍候...
-          </p>
-        </div>
-      )}
-
-      {/* 生成结果 */}
+      {/* Generated Results */}
       {generatedTracks.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-5 h-5 text-success" />
-            <h2 className="font-display text-lg font-semibold">生成完成</h2>
-          </div>
-
-          <div className="grid gap-4">
+        <div className="bg-[#16162a] border border-[#2d2d5a] rounded-2xl p-6">
+          <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+            <CheckCircle className="w-5 h-5 text-green-500" />
+            生成完成
+          </h2>
+          <div className="space-y-3">
             {generatedTracks.map((track, index) => (
               <div
                 key={track.id}
-                className="flex items-center gap-4 p-4 rounded-xl bg-surface/50 border border-border/50"
+                className="flex items-center gap-4 p-4 bg-[#1e1e3f] rounded-lg"
               >
-                <div className="relative">
-                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-accent/30 to-accent-light/30 flex items-center justify-center">
-                    <Sparkles className="w-6 h-6 text-accent-light" />
-                  </div>
-                  <button
-                    onClick={() =>
-                      setCurrentPlaying(currentPlaying === track.id ? null : track.id)
-                    }
-                    className="absolute inset-0 rounded-xl bg-black/50 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-                  >
-                    {currentPlaying === track.id ? (
-                      <Pause className="w-6 h-6 text-white" />
-                    ) : (
-                      <Play className="w-6 h-6 text-white" />
-                    )}
-                  </button>
+                <button
+                  onClick={() => handlePlay(track.url)}
+                  className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center hover:bg-purple-500 transition"
+                >
+                  {currentPlaying === track.url ? (
+                    <Pause className="w-5 h-5 text-white" />
+                  ) : (
+                    <Play className="w-5 h-5 text-white ml-0.5" />
+                  )}
+                </button>
+                <div className="flex-1">
+                  <p className="text-white text-sm">{track.title}</p>
+                  <p className="text-gray-500 text-xs">{track.duration}秒</p>
                 </div>
-
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{track.title}</p>
-                  <p className="text-sm text-text-muted">
-                    变体 {index + 1} • {track.duration}秒 • {selectedGenre}
-                  </p>
-                </div>
-
-                <button className="p-3 rounded-xl bg-gradient-accent text-white hover:scale-105 transition-transform">
+                <button className="p-2 text-gray-400 hover:text-white transition">
                   <Download className="w-5 h-5" />
                 </button>
               </div>
             ))}
           </div>
-
-          <div className="flex gap-4">
-            <button
-              onClick={() => {
-                setGeneratedTracks([]);
-                setDescription('');
-              }}
-              className="flex-1 py-3 rounded-xl border border-border hover:border-accent/50 transition-colors"
-            >
-              重新生成
-            </button>
-            <button className="flex-1 py-3 rounded-xl bg-gradient-accent text-white btn-glow">
-              全部保存到音乐库
-            </button>
-          </div>
         </div>
       )}
-
-      {/* 使用说明 */}
-      <div className="p-6 rounded-2xl bg-surface/30 border border-border/30">
-        <h3 className="font-medium mb-3">使用技巧</h3>
-        <ul className="space-y-2 text-text-secondary text-sm">
-          <li>• 描述越详细，生成的音乐越符合你的期望</li>
-          <li>• 可以指定特定的乐器、节奏或音乐元素</li>
-          <li>• 每次生成3个不同变体供选择</li>
-          <li>• 生成的音乐可直接保存到你的音乐库</li>
-        </ul>
-      </div>
     </div>
   );
 }
