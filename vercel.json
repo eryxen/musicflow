@@ -1,3 +1,0 @@
-{
-  "note": "API routes not supported on Zeabur. For production, use Cloudflare Worker. See README for setup."
-}

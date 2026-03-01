@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+const WORKER_URL = 'https://musicflow-api.eryxen.workers.dev';
 
 export interface MusicGenerationRequest {
   prompt: string;
@@ -16,53 +16,55 @@ export interface GeneratedMusic {
 }
 
 export async function generateMusic(req: MusicGenerationRequest): Promise<GeneratedMusic[]> {
-  // Build request body according to MiniMax API format
-  const body: any = {
-    model: 'music-2.5',
-    prompt: `${req.genre || ''}, ${req.mood || ''}, ${req.prompt}`.trim(),
-    lyrics: req.lyrics || `[Verse]\n${req.prompt}\n[Chorus]\nMusic flows\n[Outro]`,
-    audio_setting: {
-      sample_rate: 44100,
-      bitrate: 256000,
-      format: 'mp3',
-    },
-  };
-  
-  if (req.duration) {
-    body.audio_setting.duration = req.duration;
-  }
-
-  const response = await fetch(`${API_BASE}/music_generation`, {
+  const response = await fetch(WORKER_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${import.meta.env.VITE_MINIMAX_API_KEY}`,
-    },
-    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(error.error?.message || error.error || `API error: ${response.status}`);
+    const err = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(err.error || err.base_resp?.status_msg || `API error: ${response.status}`);
   }
 
   const data = await response.json();
-  
+
+  // Handle MiniMax error response
+  if (data.base_resp?.status_code && data.base_resp.status_code !== 0) {
+    throw new Error(data.base_resp.status_msg || 'MiniMax API error');
+  }
+
   const results: GeneratedMusic[] = [];
-  if (data.data && Array.isArray(data.data)) {
+  
+  // MiniMax returns data.data.audio with hex or url
+  if (data.data?.audio_file) {
+    results.push({
+      id: data.id || crypto.randomUUID(),
+      url: data.data.audio_file,
+      title: req.prompt?.slice(0, 30) || 'AI Generated Music',
+      duration: req.duration || 60,
+    });
+  } else if (data.data?.audio) {
+    results.push({
+      id: data.id || crypto.randomUUID(),
+      url: data.data.audio,
+      title: req.prompt?.slice(0, 30) || 'AI Generated Music',
+      duration: req.duration || 60,
+    });
+  } else if (Array.isArray(data.data)) {
     for (const item of data.data) {
       results.push({
-        id: item.id || Date.now().toString() + Math.random().toString(36).substr(2, 9),
-        url: item.audio_file?.url || item.audio_file || item.url || '',
-        title: req.prompt.slice(0, 30) || 'AI Generated Music',
+        id: item.id || crypto.randomUUID(),
+        url: item.audio_file || item.audio || item.url || '',
+        title: req.prompt?.slice(0, 30) || 'AI Generated Music',
         duration: req.duration || 60,
       });
     }
   }
-  
+
   if (results.length === 0) {
-    throw new Error('No music generated. Please try again.');
+    throw new Error('No music generated');
   }
-  
+
   return results;
 }
