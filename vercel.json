@@ -1,5 +1,3 @@
 {
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/music.js" }
-  ]
+  "note": "API routes not supported on Zeabur. For production, use Cloudflare Worker. See README for setup."
 }

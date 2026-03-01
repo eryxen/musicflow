@@ -1,4 +1,4 @@
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
 export interface MusicGenerationRequest {
   prompt: string;
@@ -16,17 +16,34 @@ export interface GeneratedMusic {
 }
 
 export async function generateMusic(req: MusicGenerationRequest): Promise<GeneratedMusic[]> {
-  const response = await fetch(`${API_BASE}/music`, {
+  // Build request body according to MiniMax API format
+  const body: any = {
+    model: 'music-2.5',
+    prompt: `${req.genre || ''}, ${req.mood || ''}, ${req.prompt}`.trim(),
+    lyrics: req.lyrics || `[Verse]\n${req.prompt}\n[Chorus]\nMusic flows\n[Outro]`,
+    audio_setting: {
+      sample_rate: 44100,
+      bitrate: 256000,
+      format: 'mp3',
+    },
+  };
+  
+  if (req.duration) {
+    body.audio_setting.duration = req.duration;
+  }
+
+  const response = await fetch(`${API_BASE}/music_generation`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${import.meta.env.VITE_MINIMAX_API_KEY}`,
     },
-    body: JSON.stringify(req),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(error.error || `API error: ${response.status}`);
+    throw new Error(error.error?.message || error.error || `API error: ${response.status}`);
   }
 
   const data = await response.json();
