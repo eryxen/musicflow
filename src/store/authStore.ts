@@ -3,7 +3,6 @@ import { persist } from 'zustand/middleware';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { User, AuthState } from '@/types';
 
-// Mock user for development without Supabase
 export const mockUser: User = {
   id: 'mock-user-1',
   email: 'demo@musicflow.app',
@@ -35,10 +34,8 @@ export const useAuthStore = create<AuthState>()(
   )
 );
 
-// Supabase auth helpers
 export async function signUpWithEmail(email: string, password: string, name: string) {
   if (!isSupabaseConfigured()) {
-    // Mock mode
     useAuthStore.getState().setUser({ ...mockUser, email, name });
     return { user: mockUser, error: null };
   }
@@ -80,13 +77,21 @@ export async function signInWithEmail(email: string, password: string) {
 export async function signInWithGoogle() {
   if (!isSupabaseConfigured()) {
     useAuthStore.getState().setUser(mockUser);
-    return { error: null };
+    return { error: null, url: '/dashboard' };
   }
 
-  const { error } = await supabase.auth.signInWithOAuth({
+  const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo: window.location.origin + '/dashboard' },
+    options: { 
+      redirectTo: window.location.origin + '/dashboard',
+      skipBrowserRedirect: false 
+    },
   });
+
+  // If there's a URL, the browser will redirect to it
+  if (data?.url) {
+    window.location.href = data.url;
+  }
 
   return { error: error?.message || null };
 }
@@ -116,7 +121,7 @@ async function fetchProfile(userId: string): Promise<User | null> {
 
   return {
     id: data.id,
-    email: '', // will be filled from auth
+    email: '',
     name: data.name || '',
     avatar_url: data.avatar_url || '',
     subscription_plan: data.subscription_plan,
